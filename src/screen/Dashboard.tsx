@@ -1,7 +1,123 @@
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { signOut } from "firebase/auth";
+import {
+  collection,
+  addDoc,
+  query,
+  where,
+  orderBy,
+  onSnapshot,
+  serverTimestamp,
+} from "firebase/firestore";
+import { auth, db } from "../config/Firebase.js";
+import { useAuthStore } from "../store/Authstore.js";
+import type { Transaction } from "../types";
+
 const Dashboard = () => {
+  const navigate = useNavigate();
+
+  const user = useAuthStore((state) => state.user);
+
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+
+  const [showModal, setShowModal] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [description, setDescription] = useState("");
+  const [date, setDate] = useState("");
+  const [type, setType] = useState<"income" | "expense">("expense");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const transactionsQuery = query(
+      collection(db, "transactions"),
+      where("uid", "==", user.uid),
+      orderBy("date", "desc"),
+    );
+
+    const unsubscribe = onSnapshot(
+      transactionsQuery,
+      (snapshot) => {
+        const list = snapshot.docs.map((docItem) => ({
+          id: docItem.id,
+          ...docItem.data(),
+        })) as Transaction[];
+        setTransactions(list);
+      },
+      (error) => {
+        console.error("Error loading transactions:", error);
+      },
+    );
+
+    return () => unsubscribe();
+  }, [user]);
+
+  const resetForm = () => {
+    setAmount("");
+    setDescription("");
+    setDate("");
+    setType("expense");
+  };
+
+  const handleAddTransaction = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!user) {
+      alert("User not authenticated");
+      return;
+    }
+
+    if (!amount || !description || !date) {
+      alert("Please fill in all fields: amount, description, and date");
+      return;
+    }
+
+    if (Number(amount) <= 0) {
+      alert("Amount must be greater than zero");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      await addDoc(collection(db, "transactions"), {
+        uid: user.uid,
+        amount: Number(amount),
+        description: description,
+        date: date,
+        type: type,
+        createdAt: serverTimestamp(),
+      });
+
+      resetForm();
+      setShowModal(false);
+    } catch (err) {
+      console.log(err);
+      alert("Something went wrong while saving. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
+    navigate("/login");
+  };
+
+  const totalIncome = transactions
+    .filter((t) => t.type === "income")
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const totalExpense = transactions
+    .filter((t) => t.type === "expense")
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const balance = totalIncome - totalExpense;
+
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Sidebar */}
       <aside className="fixed left-0 top-0 h-screen w-64 border-r bg-white p-6">
         <h1 className="mb-10 text-2xl font-bold text-slate-800">
           Expense<span className="text-emerald-600">Tracker</span>
@@ -16,7 +132,10 @@ const Dashboard = () => {
             💳 Transactions
           </button>
 
-          <button className="w-full rounded-xl px-4 py-3 text-left text-slate-600 hover:bg-slate-100">
+          <button
+            onClick={() => setShowModal(true)}
+            className="w-full rounded-xl px-4 py-3 text-left text-slate-600 hover:bg-slate-100"
+          >
             ➕ Add Transaction
           </button>
 
@@ -25,18 +144,18 @@ const Dashboard = () => {
           </button>
         </nav>
 
-        <button className="absolute bottom-8 left-6 text-slate-600">
+        <button
+          onClick={handleLogout}
+          className="absolute bottom-8 left-6 text-slate-600 hover:text-slate-800"
+        >
           🚪 Log Out
         </button>
       </aside>
 
-      {/* Main Content */}
       <main className="ml-64 p-8">
-        {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold text-slate-800">Welcome back!</h2>
-
             <p className="mt-1 text-slate-500">
               Here's a quick overview of your finances.
             </p>
@@ -46,192 +165,178 @@ const Dashboard = () => {
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100">
               👤
             </div>
-
-            <span className="font-medium text-slate-700">Hello, Abdullah</span>
+            <span className="font-medium text-slate-700">
+              Hello, {user?.displayName || user?.email}
+            </span>
           </div>
         </div>
 
-        {/* Summary Cards */}
         <div className="grid gap-5 md:grid-cols-3">
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <p className="text-sm text-slate-500">Total Income</p>
-
-            <h3 className="mt-2 text-3xl font-bold text-slate-800">$1,250</h3>
-
-            <p className="mt-2 text-sm text-emerald-600">
-              +12% from last month
-            </p>
+            <h3 className="mt-2 text-3xl font-bold text-slate-800">
+              ${totalIncome.toFixed(2)}
+            </h3>
           </div>
 
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <p className="text-sm text-slate-500">Total Expenses</p>
-
-            <h3 className="mt-2 text-3xl font-bold text-slate-800">$850</h3>
-
-            <p className="mt-2 text-sm text-red-500">+5% from last month</p>
+            <h3 className="mt-2 text-3xl font-bold text-slate-800">
+              ${totalExpense.toFixed(2)}
+            </h3>
           </div>
 
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <p className="text-sm text-slate-500">Balance</p>
-
-            <h3 className="mt-2 text-3xl font-bold text-slate-800">$400</h3>
-
+            <h3 className="mt-2 text-3xl font-bold text-slate-800">
+              ${balance.toFixed(2)}
+            </h3>
             <p className="mt-2 text-sm text-slate-500">Current balance</p>
           </div>
         </div>
 
-        {/* Dashboard Content */}
-        <div className="mt-6 grid gap-6 lg:grid-cols-3">
-          {/* Chart */}
-          <div className="rounded-2xl border bg-white p-6 shadow-sm lg:col-span-2">
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h3 className="text-xl font-semibold text-slate-800">
-                  Monthly Overview
-                </h3>
+        <div className="mt-6 rounded-2xl border bg-white p-6 shadow-sm">
+          <h3 className="mb-6 text-xl font-semibold text-slate-800">
+            Recent Transactions
+          </h3>
 
-                <p className="text-sm text-slate-500">Income and expenses</p>
-              </div>
+          {transactions.length === 0 && (
+            <p className="text-slate-500">
+              No transactions yet. Tap "Add Transaction" to get started.
+            </p>
+          )}
 
-              <div className="text-sm text-slate-500">
-                🟢 Income &nbsp; 🔴 Expenses
-              </div>
-            </div>
-
-            {/* Simple Chart */}
-            <div className="flex h-64 items-end justify-around gap-4 border-b border-slate-200">
-              <div className="flex h-full items-end gap-2">
-                <div
-                  className="w-6 rounded-t-lg bg-emerald-400"
-                  style={{ height: "45%" }}
-                ></div>
-                <div
-                  className="w-6 rounded-t-lg bg-red-300"
-                  style={{ height: "30%" }}
-                ></div>
-              </div>
-
-              <div className="flex h-full items-end gap-2">
-                <div
-                  className="w-6 rounded-t-lg bg-emerald-400"
-                  style={{ height: "55%" }}
-                ></div>
-                <div
-                  className="w-6 rounded-t-lg bg-red-300"
-                  style={{ height: "38%" }}
-                ></div>
-              </div>
-
-              <div className="flex h-full items-end gap-2">
-                <div
-                  className="w-6 rounded-t-lg bg-emerald-400"
-                  style={{ height: "60%" }}
-                ></div>
-                <div
-                  className="w-6 rounded-t-lg bg-red-300"
-                  style={{ height: "40%" }}
-                ></div>
-              </div>
-
-              <div className="flex h-full items-end gap-2">
-                <div
-                  className="w-6 rounded-t-lg bg-emerald-400"
-                  style={{ height: "70%" }}
-                ></div>
-                <div
-                  className="w-6 rounded-t-lg bg-red-300"
-                  style={{ height: "48%" }}
-                ></div>
-              </div>
-
-              <div className="flex h-full items-end gap-2">
-                <div
-                  className="w-6 rounded-t-lg bg-emerald-400"
-                  style={{ height: "75%" }}
-                ></div>
-                <div
-                  className="w-6 rounded-t-lg bg-red-300"
-                  style={{ height: "55%" }}
-                ></div>
-              </div>
-
-              <div className="flex h-full items-end gap-2">
-                <div
-                  className="w-6 rounded-t-lg bg-emerald-400"
-                  style={{ height: "85%" }}
-                ></div>
-                <div
-                  className="w-6 rounded-t-lg bg-red-300"
-                  style={{ height: "60%" }}
-                ></div>
-              </div>
-            </div>
-
-            <div className="mt-3 flex justify-around text-sm text-slate-500">
-              <span>Apr</span>
-              <span>May</span>
-              <span>Jun</span>
-              <span>Jul</span>
-              <span>Aug</span>
-              <span>Sep</span>
-            </div>
-          </div>
-
-          {/* Recent Transactions */}
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <h3 className="mb-6 text-xl font-semibold text-slate-800">
-              Recent Transactions
-            </h3>
-
-            <div className="space-y-5">
-              <div className="flex items-center justify-between">
+          <div className="space-y-5">
+            {transactions.map((t) => (
+              <div key={t.id} className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium text-slate-700">Grocery Shopping</p>
-                  <p className="text-sm text-slate-400">Sep 11, 2025</p>
+                  {/* Shows the description if one was entered, otherwise falls back to the type */}
+                  <p className="font-medium capitalize text-slate-700">
+                    {t.description}
+                  </p>
+                  <p className="text-sm text-slate-400">{t.date}</p>
                 </div>
 
-                <span className="text-red-500">- $45</span>
+                <span
+                  className={
+                    t.type === "income" ? "text-emerald-600" : "text-red-500"
+                  }
+                >
+                  {t.type === "income" ? "+" : "-"} ${t.amount.toFixed(2)}
+                </span>
               </div>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-slate-700">Uber Ride</p>
-                  <p className="text-sm text-slate-400">Sep 09, 2025</p>
-                </div>
-
-                <span className="text-red-500">- $12.50</span>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-slate-700">Salary</p>
-                  <p className="text-sm text-slate-400">Sep 10, 2025</p>
-                </div>
-
-                <span className="text-emerald-600">+ $1,500</span>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-slate-700">Electricity Bill</p>
-                  <p className="text-sm text-slate-400">Sep 08, 2025</p>
-                </div>
-
-                <span className="text-red-500">- $80</span>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-slate-700">Online Shopping</p>
-                  <p className="text-sm text-slate-400">Sep 07, 2025</p>
-                </div>
-
-                <span className="text-red-500">- $65</span>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
       </main>
+
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="mb-5 text-xl font-bold text-slate-800">
+              Add Transaction
+            </h3>
+
+            <form onSubmit={handleAddTransaction} className="space-y-4">
+              {/* Amount */}
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">
+                  Amount
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="e.g. 50"
+                  required
+                  className="h-11 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">
+                  Description
+                </label>
+                <input
+                  type="text"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="e.g. Grocery shopping"
+                  required
+                  className="h-11 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">
+                  Date
+                </label>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  required
+                  className="h-11 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">
+                  Type
+                </label>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setType("income")}
+                    className={`flex-1 rounded-lg border py-2 font-medium ${
+                      type === "income"
+                        ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                        : "border-slate-200 text-slate-500"
+                    }`}
+                  >
+                    Income
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setType("expense")}
+                    className={`flex-1 rounded-lg border py-2 font-medium ${
+                      type === "expense"
+                        ? "border-red-500 bg-red-50 text-red-600"
+                        : "border-slate-200 text-slate-500"
+                    }`}
+                  >
+                    Expense
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetForm();
+                    setShowModal(false);
+                  }}
+                  className="flex-1 rounded-lg border border-slate-200 py-2 font-medium text-slate-600"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1 rounded-lg bg-emerald-600 py-2 font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {saving ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 
-const Welcome = () => {
+const Home = () => {
   const navigate = useNavigate();
 
   return (
@@ -41,4 +41,4 @@ const Welcome = () => {
   );
 };
 
-export default Welcome;
+export default Home;
